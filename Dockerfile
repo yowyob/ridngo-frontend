@@ -1,21 +1,60 @@
-FROM node:20-alpine AS build
+# =============================================================
+# DOCKERFILE — FRONTEND NEXT.JS
+# =============================================================
+
+# -----------------------------------------------------------
+# STAGE 1 — builder
+# -----------------------------------------------------------
+FROM node:20-alpine AS builder
+
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
-ARG NEXT_PUBLIC_API_BASE_URL=https://ridngo.yowyob.com/ride-api
-ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+
+COPY package*.json ./
+RUN npm install && npm ci --prefer-offline
+
 COPY . .
-RUN mkdir -p public && npm run build
-FROM node:20-alpine AS runtime
+
+# --- Variables NEXT_PUBLIC_* : baked au build ---
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_VEHICLE_API_BASE_URL
+ARG NEXT_PUBLIC_OSM_BASE_URL
+ARG NEXT_PUBLIC_COMPLIANCE_URL
+
+RUN printf "NEXT_PUBLIC_API_BASE_URL=%s\n\
+NEXT_PUBLIC_VEHICLE_API_BASE_URL=%s\n\
+NEXT_PUBLIC_OSM_BASE_URL=%s\n\
+NEXT_PUBLIC_COMPLIANCE_URL=%s\n" \
+  "$NEXT_PUBLIC_API_BASE_URL" \
+  "$NEXT_PUBLIC_VEHICLE_API_BASE_URL" \
+  "$NEXT_PUBLIC_OSM_BASE_URL" \
+  "$NEXT_PUBLIC_COMPLIANCE_URL" \
+  > .env
+
+RUN npm run build
+
+# -----------------------------------------------------------
+# STAGE 2 — runner
+# Seul .next/standalone est copié → image finale légère
+# -----------------------------------------------------------
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache curl
+
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
-COPY --from=build /app/package.json /app/package-lock.json* ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/next.config.* ./
-USER nextjs
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Standalone contient le serveur Node minimal
+COPY --from=builder /app/.next/standalone ./
+# Fichiers statiques publics (images, fonts, etc.)
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+
+#HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=20s \
+#  CMD curl -f http://localhost:3000/ || exit 1
+
+CMD ["node", "server.js"]

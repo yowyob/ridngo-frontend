@@ -66,6 +66,7 @@ export interface Bid {
 export interface OfferResponse {
   id: string;
   passengerId: string;
+  passengerName?: string;
   selectedDriverId?: string;
   startPoint: string;
   startLat?: number;
@@ -99,6 +100,9 @@ export interface RideResponse {
   offerId: string;
   driverId: string;
   passengerId: string;
+  startPoint?: string;
+  endPoint?: string;
+  price?: number;
   distance: number;
   duration: number;
   state: RideState;

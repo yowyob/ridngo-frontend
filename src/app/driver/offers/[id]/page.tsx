@@ -69,6 +69,19 @@ export default function OfferDetailsPage({ params }: { params: Promise<{ id: str
     }
   }, [loading]); // Se déclenche une fois que le chargement est fini
 
+  // --- Fonction utilitaire pour enrichir une offre avec le nom du passager ---
+  const enrichOfferWithPassengerName = async (offerData: any): Promise<any> => {
+    if (offerData.passengerName || !offerData.passengerId) return offerData;
+    try {
+      const res = await api.get(`/api/v1/users/${offerData.passengerId}`);
+      const u = res.data;
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.username || null;
+      return name ? { ...offerData, passengerName: name } : offerData;
+    } catch {
+      return offerData;
+    }
+  };
+
   // --- CHARGEMENT & POLLING ---
   useEffect(() => {
     const init = async () => {
@@ -77,7 +90,8 @@ export default function OfferDetailsPage({ params }: { params: Promise<{ id: str
         if (stored) setMe(JSON.parse(stored));
 
         const data = await rideService.getOfferById(id);
-        setOffer(data);
+        const enriched = await enrichOfferWithPassengerName(data);
+        setOffer(enriched);
 
         if (data.state === 'VALIDATED') {
           const ride = await rideService.getRideByOffer(id);
@@ -99,13 +113,15 @@ export default function OfferDetailsPage({ params }: { params: Promise<{ id: str
           const ride = await rideService.getRideByOffer(id);
           router.push(`/driver/ride/${ride.id}`);
         } else {
-          setOffer(updated);
+          const enriched = await enrichOfferWithPassengerName(updated);
+          setOffer(enriched);
         }
       } catch (e) {}
     }, 4000);
 
     return () => clearInterval(interval);
   }, [id, router]);
+
 
   // --- ACTIONS ---
   const handleApply = async () => {
@@ -124,16 +140,7 @@ export default function OfferDetailsPage({ params }: { params: Promise<{ id: str
   const handleCancelApplication = async () => {
     setActionLoading(true);
     try {
-      try {
-        await api.delete(`/api/v1/offers/${id}/apply`);
-      } catch (error: any) {
-        if (error?.response?.status === 404 || error?.response?.status === 400) {
-          await api.delete(`/api/v1/offers/${id}`);
-        } else {
-          throw error;
-        }
-      }
-
+      await api.post(`/api/v1/offers/${id}/withdraw`);
       const updated = await rideService.getOfferById(id);
       setOffer(updated);
       toast.success("Votre candidature a été annulée");

@@ -4,10 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/api-client';
 import { 
   ArrowLeft, User, Loader2, 
-  MapPin, CheckCircle2, Star, ChevronDown, MessageSquareQuote
+  MapPin, CheckCircle2, Star, ChevronDown, MessageSquareQuote, EyeOff
 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 
 // Interface pour les avis
 interface ReviewInfo {
@@ -26,10 +27,14 @@ interface ReviewInfo {
  */
 const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, review?: ReviewInfo }) => {
   const [partner, setPartner] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!review?.anonymous);
   const [isCommentExpanded, setIsCommentExpanded] = useState(false);
 
   useEffect(() => {
+    if (review?.anonymous) {
+      setLoading(false);
+      return;
+    }
     const fetchFullDetails = async () => {
       try {
         // 1. Chercher le ride par son ID pour avoir le passengerId
@@ -46,7 +51,7 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
       }
     };
     fetchFullDetails();
-  }, [ride.rideId]);
+  }, [ride.rideId, review?.anonymous]);
 
   const commentLength = review?.comment?.length || 0;
   const isLongComment = commentLength > 100;
@@ -65,6 +70,8 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
     ));
   };
 
+  const showAnonymous = !!review?.anonymous;
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }}
@@ -74,7 +81,7 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-6">
         <div className="flex items-center gap-5">
            <div className="w-14 h-14 bg-foreground/5 rounded-2xl flex items-center justify-center text-orange-btn shadow-inner overflow-hidden">
-              {ride.partnerPhoto ? (
+              {ride.partnerPhoto && !showAnonymous ? (
                 <img src={ride.partnerPhoto} className="w-full h-full object-cover" alt="" />
               ) : (
                 <User size={24} />
@@ -86,7 +93,7 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
                 <div className="h-4 w-28 bg-foreground/5 animate-pulse rounded mt-1" />
               ) : (
                 <p className="font-black text-base capitalize">
-                  {partner?.firstName} {partner?.lastName}
+                  {showAnonymous ? "Anonyme" : `${partner?.firstName || ''} ${partner?.lastName || ''}`.trim() || "Passager"}
                 </p>
               )}
               <p className="text-[10px] font-bold opacity-40 mt-1 uppercase tracking-tighter">
@@ -128,28 +135,6 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
           transition={{ duration: 0.3 }}
           className="border-t border-foreground/5 pt-4"
         >
-          {/* Identité du passager ayant laissé l'avis */}
-          <div className="flex items-center gap-2 mb-3">
-            {review.anonymous ? (
-              <>
-                <div className="w-6 h-6 rounded-lg bg-foreground/10 flex items-center justify-center">
-                  <User size={12} className="opacity-40" />
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Anonyme</span>
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-foreground/5 rounded-full opacity-50">Avis anonyme</span>
-              </>
-            ) : (
-              <>
-                <div className="w-6 h-6 rounded-lg bg-foreground/5 overflow-hidden flex items-center justify-center">
-                  {review.passengerPhoto
-                    ? <img src={review.passengerPhoto} className="w-full h-full object-cover" alt="" />
-                    : <User size={12} className="opacity-40" />}
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-widest opacity-50">{review.passengerName}</span>
-              </>
-            )}
-          </div>
-
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             {/* Étoiles + Note */}
             <div className="flex items-center gap-3 bg-foreground/[0.03] px-4 py-2.5 rounded-xl shrink-0">
@@ -161,6 +146,14 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
                 <span className="text-[9px] font-bold opacity-30">/5</span>
               </div>
             </div>
+
+            {/* Badge Anonyme si applicable */}
+            {review.anonymous && (
+              <div className="flex items-center gap-1.5 bg-foreground/5 border border-foreground/10 rounded-xl px-3 py-1.5">
+                <EyeOff size={11} className="text-foreground/40" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-foreground/40">Avis anonyme</span>
+              </div>
+            )}
 
             {/* Commentaire déroulable */}
             {review.comment ? (
@@ -217,37 +210,29 @@ const DriverHistoryCard = ({ ride, idx, review }: { ride: any, idx: number, revi
 };
 
 export default function HistoryPage() {
-  const [rides, setRides] = useState<any[]>([]);
-  const [reviewsMap, setReviewsMap] = useState<Map<string, ReviewInfo>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const { data: rides = [], isLoading: ridesLoading } = useQuery({
+    queryKey: ['driverHistory'],
+    queryFn: async () => {
+      const res = await api.get('/api/v1/trips/enriched-history?page=0&size=50');
+      return res.data;
+    },
+  });
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        // Fetch rides et reviews en parallèle
-        const [historyRes, reviewsRes] = await Promise.all([
-          api.get('/api/v1/trips/enriched-history?page=0&size=50'),
-          api.get('/api/v1/reviews/me').catch(() => ({ data: [] }))
-        ]);
+  const { data: reviewsMap = new Map(), isLoading: reviewsLoading } = useQuery({
+    queryKey: ['driverReviews'],
+    queryFn: async () => {
+      const reviewsRes = await api.get('/api/v1/reviews/me').catch(() => ({ data: [] }));
+      const map = new Map<string, ReviewInfo>();
+      (reviewsRes.data as ReviewInfo[]).forEach(review => {
+        if (review.rideId) {
+          map.set(review.rideId, review);
+        }
+      });
+      return map;
+    },
+  });
 
-        setRides(historyRes.data);
-
-        // Créer un Map rideId -> review pour lookup rapide
-        const map = new Map<string, ReviewInfo>();
-        (reviewsRes.data as ReviewInfo[]).forEach(review => {
-          if (review.rideId) {
-            map.set(review.rideId, review);
-          }
-        });
-        setReviewsMap(map);
-      } catch (e) { 
-        console.error("Erreur historique enrichi:", e); 
-      } finally { 
-        setLoading(false); 
-      }
-    };
-    fetchHistory();
-  }, []);
+  const loading = ridesLoading || reviewsLoading;
 
   if (loading) return (
     <div className="h-screen flex flex-col items-center justify-center gap-4">
@@ -274,7 +259,7 @@ export default function HistoryPage() {
             Aucun trajet trouvé.
           </div>
         ) : (
-          rides.map((ride, idx) => (
+          rides.map((ride: any, idx: number) => (
             <DriverHistoryCard 
               key={ride.rideId} 
               ride={ride} 

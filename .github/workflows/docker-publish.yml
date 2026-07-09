@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**.md", "docs/**"]
+  repository_dispatch:
+    types: [mirror-updated]
   workflow_dispatch:
 jobs:
   build:
