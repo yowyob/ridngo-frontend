@@ -30,6 +30,11 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=https://ridngo.yowyob.com/ridngo-api
+            NEXT_PUBLIC_VEHICLE_API_BASE_URL=https://traefikdev.yowyob.com/vehicule
+            NEXT_PUBLIC_OSM_BASE_URL=https://nominatim.openstreetmap.org
+            NEXT_PUBLIC_COMPLIANCE_URL=https://ugate-compliance-callback.vercel.app
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}
             ${{ steps.meta.outputs.image }}:main
